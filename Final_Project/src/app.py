@@ -74,48 +74,109 @@ def get_data_path(relative_path: str) -> Path:
     1. Relative từ src/ (../dataset/...)
     2. Absolute từ project root (./dataset/...)
     3. Từ current working directory
+    4. Từ src/ (dataset/...)
     """
-    # Path từ src/ lên parent (local development)
+    import os
+    
+    # Path từ src/ lên parent (local development) - ../dataset/...
     path1 = Path(__file__).parent.parent / relative_path
     
-    # Path từ current working directory (deployment)
+    # Path từ current working directory (deployment) - dataset/...
     path2 = Path(relative_path)
     
-    # Path từ project root (nếu chạy từ root)
+    # Path từ project root (nếu chạy từ root) - ./dataset/...
     path3 = Path('.') / relative_path
     
-    # Thử từng path
-    for path in [path1, path2, path3]:
-        if path.exists():
-            return path
+    # Path từ src/ (nếu chạy từ src/) - dataset/...
+    path4 = Path(__file__).parent / relative_path
     
-    # Nếu không tìm thấy, trả về path đầu tiên (để hiển thị lỗi)
+    # Path từ src/ lên parent rồi vào dataset (nếu relative_path không có dataset/)
+    if 'dataset' not in relative_path and 'notebook' not in relative_path:
+        path5 = Path(__file__).parent.parent / 'dataset' / relative_path
+    else:
+        path5 = None
+    
+    # Thử từng path
+    paths_to_try = [path1, path2, path3, path4]
+    if path5:
+        paths_to_try.append(path5)
+    
+    for path in paths_to_try:
+        if path.exists():
+            return path.resolve()  # Resolve để có absolute path
+    
+    # Nếu không tìm thấy, in debug info
+    import sys
+    debug_info = f"""
+    ❌ Không tìm thấy file: {relative_path}
+    
+    Đã thử các đường dẫn sau:
+    1. {path1.resolve()} (từ src/ lên parent)
+    2. {path2.resolve()} (từ current working directory)
+    3. {path3.resolve()} (từ project root)
+    4. {path4.resolve()} (từ src/)
+    """
+    if path5:
+        debug_info += f"    5. {path5.resolve()} (từ src/../dataset/)\n"
+    
+    debug_info += f"""
+    Current working directory: {os.getcwd()}
+    __file__ location: {__file__}
+    __file__ parent: {Path(__file__).parent}
+    """
+    
+    # Trả về path đầu tiên (để hiển thị lỗi)
     return path1
 
 
 @st.cache_resource
 def load_data():
     """Load tất cả data và models"""
+    import os
+    
     try:
         # Load books
         books_path = get_data_path('dataset/cleaned/Books_cleaned.csv')
+        if not books_path.exists():
+            st.error(f"❌ Không tìm thấy file: {books_path}")
+            st.info(f"💡 Current working directory: {os.getcwd()}")
+            st.info(f"💡 File location: {__file__}")
+            st.stop()
         books = pd.read_csv(books_path)
 
         # Load users
         users_path = get_data_path('dataset/cleaned/Users_cleaned.csv')
+        if not users_path.exists():
+            st.error(f"❌ Không tìm thấy file: {users_path}")
+            st.stop()
         users = pd.read_csv(users_path)
 
         # Load ratings
         ratings_path = get_data_path('dataset/cleaned/Ratings_cleaned.csv')
+        if not ratings_path.exists():
+            st.error(f"❌ Không tìm thấy file: {ratings_path}")
+            st.stop()
         ratings = pd.read_csv(ratings_path)
 
         # Load SVD model
         model_path = get_data_path('notebook/saved_models/svd_model.pkl')
-        with open(model_path, 'rb') as f:
-            svd_model = pickle.load(f)
+        if not model_path.exists():
+            st.warning(f"⚠️ Không tìm thấy SVD model: {model_path}")
+            st.info("💡 Hãy chạy notebook để train và lưu SVD model")
+            st.info("💡 Hoặc tạo file svd_model.pkl trong notebook/saved_models/")
+            # Tạo dummy model để app vẫn chạy được (nhưng sẽ không có personalized recommendations)
+            svd_model = None
+        else:
+            with open(model_path, 'rb') as f:
+                svd_model = pickle.load(f)
 
         # Load item similarity matrix
         similarity_path = get_data_path('dataset/cleaned/item_similarity.pkl')
+        if not similarity_path.exists():
+            st.error(f"❌ Không tìm thấy file: {similarity_path}")
+            st.info("💡 Hãy chạy `python src/compute_similarity.py` trước để tạo item_similarity.pkl")
+            st.info(f"💡 Hoặc đảm bảo file tồn tại tại: {similarity_path}")
+            st.stop()
         with open(similarity_path, 'rb') as f:
             item_similarity = pickle.load(f)
 
@@ -123,11 +184,14 @@ def load_data():
 
     except FileNotFoundError as e:
         st.error(f"❌ Không tìm thấy file: {e}")
-        st.info("💡 Hãy chạy `python compute_similarity.py` trước để tạo item_similarity.pkl")
+        st.info("💡 Hãy chạy `python src/compute_similarity.py` trước để tạo item_similarity.pkl")
         st.info("💡 Đảm bảo các file data và models đã được copy vào đúng vị trí")
+        st.info(f"💡 Current working directory: {os.getcwd()}")
         st.stop()
     except Exception as e:
         st.error(f"❌ Lỗi khi load data: {e}")
+        import traceback
+        st.code(traceback.format_exc())
         st.stop()
 
 
